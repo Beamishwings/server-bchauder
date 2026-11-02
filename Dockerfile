@@ -1,13 +1,26 @@
-FROM golang:1.27.1-alpine
+# Stage 1: Build the Go application
+FROM public.ecr.aws/docker/library/golang:latest AS build
 
-WORKDIR /app
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
 
 COPY . .
 
-RUN go mod download
+# Build a static Linux executable
+RUN CGO_ENABLED=0 GOOS=linux go build -o main .
 
-RUN go build -o server .
+# Stage 2: Create a smaller runtime image
+FROM public.ecr.aws/docker/library/alpine:latest
+
+# Install HTTPS certificates and timezone data
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy only the compiled application
+COPY --from=build /build/main ./
 
 EXPOSE 8080
 
-CMD ["./server"]
+CMD ["./main"]
