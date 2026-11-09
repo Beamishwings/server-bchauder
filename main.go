@@ -16,26 +16,27 @@ import (
 	loggly "github.com/jamespearly/loggly"
 )
 
-// get the number of records
+// get the number of records in the dynamodb table and returns the name and total count ass a json file
 func status(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	table := "bchauder_CoinbasePrices"
 	count := 0
 
 	input := &dynamodb.ScanInput{
 		TableName: &table,
-		Select: types.SelectCount,
+		Select:    types.SelectCount,
 	}
 	for {
 		result, err := db.Scan(r.Context(), input)
 
 		if err != nil {
+			fmt.Println("DynamoDB error:", err)
 			http.Error(w, "Database error", 500)
 			return
 		}
 
 		// add the records from this scan
-        recordsFound := int(result.Count)
-        count = count + recordsFound
+		recordsFound := int(result.Count)
+		count = count + recordsFound
 
 		//check if there are anymore records
 		if len(result.LastEvaluatedKey) > 0 {
@@ -55,8 +56,7 @@ func status(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	json.NewEncoder(w).Encode(response)
 }
 
-
-// get all the records
+// get all the records stored in the dynamboDB and returns them as a JSON array
 func all(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	table := "bchauder_CoinbasePrices"
 	//make a list to store the records in
@@ -65,7 +65,6 @@ func all(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	input := &dynamodb.ScanInput{
 		TableName: &table,
 	}
-
 
 	for { //fetch the records from dynamodb
 		result, err := db.Scan(r.Context(), input)
@@ -77,7 +76,7 @@ func all(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 
 		//look through ebvery single record that we reciebved
 		for _, item := range result.Items {
-			record := make(map[string]interface{}) //map out each record
+			record := make(map[string]interface{})            //map out each record
 			err := attributevalue.UnmarshalMap(item, &record) //then convert the dynamo into a go map
 
 			if err != nil {
@@ -88,9 +87,9 @@ func all(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 			records = append(records, record)
 		}
 		//check for any last records
-		 if len(result.LastEvaluatedKey) > 0 {
+		if len(result.LastEvaluatedKey) > 0 {
 			input.ExclusiveStartKey = result.LastEvaluatedKey
-		 } else {
+		} else {
 			break
 		}
 	}
@@ -99,7 +98,7 @@ func all(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	json.NewEncoder(w).Encode(records)
 }
 
-// find one record using pollId
+// find one record using pollId from the url query parameters given
 func search(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	//get pollID from the URL
 	id := r.URL.Query().Get("pollId")
@@ -125,7 +124,7 @@ func search(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	//make the dynamo request
 	input := &dynamodb.GetItemInput{
 		TableName: &table,
-		Key: key,
+		Key:       key,
 	}
 
 	//now saerch for the record
@@ -158,7 +157,8 @@ func search(w http.ResponseWriter, r *http.Request, db *dynamodb.Client) {
 	json.NewEncoder(w).Encode(record)
 }
 
-// handle requests and log them
+//handle requests and log them by checking http method and sending request to the correct endpoints and logs the info ab the 
+//requests 
 func handleRequest(w http.ResponseWriter, r *http.Request, db *dynamodb.Client, client *loggly.ClientType) {
 	code := 200
 	if r.Method != "GET" {
@@ -199,17 +199,9 @@ func main() {
 	// set up the router
 	router := mux.NewRouter()
 
-	router.HandleFunc("/bchauder/status", func(w http.ResponseWriter, r *http.Request) {
-    	status(w, r, db)
-	}).Methods("GET")
-
-	router.HandleFunc("/bchauder/all", func(w http.ResponseWriter, r *http.Request) {
-    	all(w, r, db)
-	}).Methods("GET")
-
-	router.HandleFunc("/bchauder/search", func(w http.ResponseWriter, r *http.Request) {
-    	search(w, r, db)
-	}).Methods("GET")
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleRequest(w, r, db, client)
+	})
 
 	fmt.Println("Server running on port 8080")
 	http.ListenAndServe(":8080", router)
